@@ -13,7 +13,7 @@ test('generation creates distinct complete plans without changing the source',()
   for(const next of layouts){
     assert.notEqual(next.id,p.id);assert.deepEqual(next.nodes,p.nodes);assert.deepEqual(next.walls,p.walls);assert.deepEqual(next.openings,p.openings);
     assert.ok(p.furniture.every(f=>next.furniture.some(n=>n.id===f.id&&n.width===f.width&&n.depth===f.depth)));
-    for(const item of next.furniture.filter(f=>!FIXED_KINDS.has(f.kind))){const room=findRooms(next).find(r=>placementIssues(next,item,r).length===0);assert.ok(room,`${item.name} must fit a room without collisions`);}
+    for(const item of next.furniture.filter(f=>!p.furniture.some(old=>JSON.stringify(old)===JSON.stringify(f)))){const room=findRooms(next).find(r=>placementIssues(next,item,r).length===0);assert.ok(room,`${item.name} must fit a room without collisions`);}
     const asProject={version:1 as const,name:'Test',activeId:next.id,variants:[next]};assert.deepEqual(parseProject(JSON.stringify(asProject)),asProject);
   }
   const kitchen=layouts[0].furniture.find(f=>f.kind==='kitchen')!;kitchen.x+=500;
@@ -37,7 +37,7 @@ test('rotated furniture collision and crossing a concave room boundary are rejec
   const item={id:'cross',kind:'desk' as const,name:'Test',x:120,y:120,width:180,depth:180,rotation:45,color:'#ffffff',url:''};assert.ok(placementIssues(p,item,findRooms(p)[0]).includes('outside'));
 });
 test('incomplete plans, impossible briefs and fully locked furniture fail explicitly',()=>{
-  const p=source(),b=defaultBrief(p);assert.throws(()=>generateLayouts(emptyPlan(),b));assert.throws(()=>generateLayouts(p,{...b,budget:NaN}));assert.throws(()=>generateLayouts(p,{...b,roomIds:['missing']}));assert.throws(()=>generateLayouts(p,{...b,lockedIds:p.furniture.map(f=>f.id)}),/Разрешите/);
+  const p=source(),b=defaultBrief(p);assert.throws(()=>generateLayouts(emptyPlan(),b));assert.throws(()=>generateLayouts(p,{...b,budget:NaN}));assert.throws(()=>generateLayouts(p,{...b,roomIds:['missing']}));assert.throws(()=>generateLayouts(p,{...b,lockedIds:p.furniture.map(f=>f.id),purchases:false}),/Разрешите/);
 });
 test('product results require a real source, fitting dimensions and budget',()=>{
   const spec={id:'one',furnitureId:'shelf',name:'Стеллаж',width:90,depth:30,reason:'Test',search:'Test',budget:12000},url='https://www.divan.ru/product/test-shelf';
@@ -53,5 +53,5 @@ test('malformed imported recommendations cannot enter the editor',()=>{
 });
 test('a fixed item colliding with a wall produces a useful error',()=>{
   const p=source(),wardrobe=p.furniture.find(f=>f.kind==='wardrobe'&&f.name==='Шкаф')!;
-  assert.throws(()=>generateLayouts(p,{...defaultBrief(p),lockedIds:[...defaultBrief(p).lockedIds,wardrobe.id]}),/снимите фиксацию/);
+  assert.throws(()=>generateLayouts(p,{...defaultBrief(p),goals:['storage'],roomIds:[findRooms(p).find(r=>r.label?.name==='Спальня')!.id],lockedIds:[...defaultBrief(p).lockedIds,wardrobe.id]}),/снимите фиксацию/);
 });

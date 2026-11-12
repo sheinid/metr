@@ -2,11 +2,21 @@ import { useMemo, useState } from 'react';
 import { Slider } from '@heroui/react';
 import { ChevronsLeftRight } from 'lucide-react';
 import type { Plan } from '../model';
+import { distance, furnitureBounds } from '../geometry';
 import { getPreviewFrame, PlanPreview } from './PlanPreview';
 
 export function PlanComparison({ plan, source }: { plan: Plan; source: Plan }) {
-  const [position, setPosition] = useState(50);
   const frame = useMemo(() => getPreviewFrame([source, plan]), [source, plan]);
+  const [position, setPosition] = useState(() => {
+    const changed = plan.furniture.filter(f => {
+      const old = source.furniture.find(p => p.id === f.id);
+      return !old || distance(old,f)>10 || Math.abs(old.rotation-f.rotation)>5;
+    });
+    if (!changed.length) return 50;
+    const [left,,width] = frame.viewBox.split(' ').map(Number);
+    const edge = Math.min(...changed.map(f => f.x-furnitureBounds(f).width/2));
+    return Math.max(0,Math.min(50,Math.floor((edge-left)/width*100)-4));
+  });
 
   return (
     <div className="plan-comparison">
