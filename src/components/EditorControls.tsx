@@ -24,7 +24,7 @@ export function DimensionField({ label, value, onChange, min = 0, max = 10000, s
     setEditing(false);
   };
   return (
-    <NumberField className="dimension-field" value={draft} onChange={setDraft} minValue={min} maxValue={max}
+    <NumberField variant="secondary" className="dimension-field" value={draft} onChange={setDraft} minValue={min} maxValue={max}
       step={step} formatOptions={{ useGrouping: false, maximumFractionDigits: 1 }}
       onFocus={() => setEditing(true)} onBlur={commit}>
       <Label>{label}</Label>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUpFromLine, Check, ChevronDown, Copy, DoorOpen, Download, FilePlus2, FolderOpen, Grid2X2, Hand, ImagePlus, Keyboard, Layers2, Maximize2, MousePointer2, PanelTop, Pencil, Plus, Redo2, RotateCw, Ruler, Settings2, Sofa, Trash2, Undo2, Wallpaper, X, BrickWall, CheckCheck, AlertCircle, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Button, Description, Dropdown, Input, Kbd, Label, Modal as HeroModal, SearchField, Separator, Slider, Switch, Tabs, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Toast, toast as notify } from '@heroui/react';
+import { Button, Description, Dropdown, Input, Kbd, Label, Modal as HeroModal, SearchField, Separator, Slider, Switch, Tabs, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Toast, toast as notify } from '@heroui/react';
 import { DimensionField as NumberField, IconButton } from './components/EditorControls';
 import { PlanCanvas } from './components/PlanCanvas';
 import type { CanvasHandle } from './components/PlanCanvas';
@@ -36,6 +36,7 @@ export default function App() {
   const [compareId, setCompareId] = useState(''), [modal, setModal] = useState<Modal>(null), [modalValue, setModalValue] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [creatingDemo, setCreatingDemo] = useState(false), [mobilePanel, setMobilePanel] = useState<'catalog' | 'inspector' | null>(null);
+  const variantList = useRef<HTMLDivElement>(null);
   const canvas = useRef<CanvasHandle>(null), projectInput = useRef<HTMLInputElement>(null), imageInput = useRef<HTMLInputElement>(null), gesture = useRef<Project | null>(null);
   const changePlan = useCallback((fn: (p: Plan) => Plan, record = true) => update(current => updatePlan(current, fn), record), [update]);
   const beginGesture = useCallback(() => { gesture.current = projectRef.current; }, [projectRef]);
@@ -47,6 +48,13 @@ export default function App() {
     const timer = setTimeout(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(project)); setSaveStatus('saved'); } catch { setSaveStatus('error'); } }, 450);
     return () => clearTimeout(timer);
   }, [project]);
+  useEffect(() => {
+    const list = variantList.current; if (!list) return;
+    const reveal = () => list.querySelector<HTMLElement>('[role="tab"][data-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const observer = new ResizeObserver(reveal);
+    observer.observe(list); reveal();
+    return () => observer.disconnect();
+  }, [plan.id]);
   useEffect(() => { if (initial.warning) notify.warning(initial.warning); }, [initial.warning]);
   const selectedFurniture = selection?.kind === 'furniture' ? plan.furniture.find(f => f.id === selection.id) : undefined;
   const selectedWall = selection?.kind === 'wall' ? plan.walls.find(w => w.id === selection.id) : undefined;
@@ -177,7 +185,7 @@ export default function App() {
           <Input className="project-name" aria-label="Название проекта" value={project.name} maxLength={100} onChange={e => update(p => ({ ...p, name: e.target.value }))} />
           <span className={`save-status ${saveStatus}`}>
             {saveStatus === 'saved' ? <CheckCheck size={12} /> : saveStatus === 'error' ? <AlertCircle size={12} /> : <span className="saving-dot" />}
-            {saveStatus === 'saved' ? 'Сохранено в браузере' : saveStatus === 'error' ? 'Память заполнена — сохраните файл' : 'Сохраняем…'}
+            <span className="save-message">{saveStatus === 'saved' ? 'Сохранено в браузере' : saveStatus === 'error' ? 'Память заполнена — сохраните файл' : 'Сохраняем…'}</span>
           </span>
         </div>
         <div className="header-actions">
@@ -238,11 +246,11 @@ export default function App() {
             </Tabs.Panel>
           </Tabs>
           <Button className="mobile-close catalog-close" variant="ghost" size="sm" isIconOnly aria-label="Закрыть каталог" onPress={() => setMobilePanel(null)}><X size={16} /></Button>
-          <div className="sidebar-bottom"><Button variant="secondary" size="sm" fullWidth onPress={() => imageInput.current?.click()}><ImagePlus size={16} />{plan.background ? 'Заменить подложку' : 'Подложка плана'}</Button><span>Изображение PNG, JPG или WebP</span></div>
+          <div className="sidebar-bottom"><Tooltip delay={500}><Button variant="secondary" size="sm" fullWidth onPress={() => imageInput.current?.click()}><ImagePlus size={16} />{plan.background ? 'Заменить подложку' : 'Подложка плана'}</Button><Tooltip.Content>PNG, JPG или WebP</Tooltip.Content></Tooltip></div>
         </aside>
 
         <Tabs className="editor" variant="secondary" selectedKey={plan.id} onSelectionChange={key => selectVariant(String(key))}>
-          <Tabs.ListContainer className="variant-list" style={{ marginRight: project.variants.length > 1 ? compareId ? 220 : 180 : 52 }}><Tabs.List aria-label="Варианты планировки">{project.variants.map(variant => <Tabs.Tab key={variant.id} id={variant.id}>{variant.name}<Tabs.Indicator /></Tabs.Tab>)}</Tabs.List></Tabs.ListContainer>
+          <Tabs.ListContainer ref={variantList} className="variant-list"><Tabs.List aria-label="Варианты планировки">{project.variants.map(variant => <Tabs.Tab key={variant.id} id={variant.id}><span className="variant-name" title={variant.name}>{variant.name}</span><Tabs.Indicator /></Tabs.Tab>)}</Tabs.List></Tabs.ListContainer>
           <div className="variant-actions"><IconButton label="Создать копию варианта" onPress={() => openModal('variant')}><Plus size={16} /></IconButton>
             {project.variants.length > 1 && <div className="compare-control"><Dropdown><Button size="sm" variant={compareId ? 'secondary' : 'ghost'} aria-label="Наложить вариант"><Layers2 size={15} /><span>{ghost ? ghost.name : 'Сравнить'}</span><ChevronDown size={12} /></Button><Dropdown.Popover><Dropdown.Menu aria-label="Наложение вариантов" selectionMode="single" selectedKeys={[compareId || 'none']} onAction={key => setCompareId(key === 'none' ? '' : String(key))}><Dropdown.Item id="none" textValue="Без наложения"><Label>Без наложения</Label><Dropdown.ItemIndicator /></Dropdown.Item>{project.variants.filter(v => v.id !== plan.id).map(v => <Dropdown.Item key={v.id} id={v.id} textValue={v.name}><Label>{v.name}</Label><Dropdown.ItemIndicator /></Dropdown.Item>)}</Dropdown.Menu></Dropdown.Popover></Dropdown>{compareId && <IconButton label="Убрать сравнение" onPress={() => setCompareId('')}><X size={14} /></IconButton>}</div>}
           </div>
@@ -257,7 +265,7 @@ export default function App() {
               <section className="property-section"><h3>Размеры</h3><div className="field-row"><NumberField label="Ширина" value={selectedFurniture.width} min={10} onChange={width => changeFurniture({ width })} /><NumberField label="Глубина" value={selectedFurniture.depth} min={10} onChange={depth => changeFurniture({ depth })} /></div><div className="field-row"><NumberField label="Поворот" value={selectedFurniture.rotation} min={-360} max={360} suffix="°" step={15} onChange={rotation => changeFurniture({ rotation })} /><Button className="rotate-button" variant="secondary" size="sm" onPress={() => changeFurniture({ rotation: (selectedFurniture.rotation + 90) % 360 })}><RotateCw size={14} />На 90°</Button></div></section>
               <section className="property-section"><h3>Положение</h3><div className="field-row"><NumberField label="X" value={selectedFurniture.x} min={-100000} onChange={x => changeFurniture({ x })} /><NumberField label="Y" value={selectedFurniture.y} min={-100000} onChange={y => changeFurniture({ y })} /></div></section>
               <section className="property-section"><h3>Цвет</h3><div className="swatches">{PALETTE.map(color => <Button key={color} variant="ghost" size="sm" isIconOnly style={{ background: color }} aria-label={`Цвет ${color}`} aria-pressed={selectedFurniture.color === color} className={selectedFurniture.color === color ? 'selected' : ''} onPress={() => changeFurniture({ color })}>{selectedFurniture.color === color && <Check size={14} />}</Button>)}<label className="custom-color"><Plus size={14} /><input aria-label="Свой цвет предмета" type="color" value={selectedFurniture.color} onChange={e => changeFurniture({ color: e.target.value })} /></label></div></section>
-              <section className="property-section"><TextField value={selectedFurniture.url} onChange={url => changeFurniture({ url })}><Label>Ссылка на товар</Label><Input aria-label="Ссылка на товар" placeholder="https://…" /></TextField>{safeUrl(selectedFurniture.url) && <a className="external-link" href={safeUrl(selectedFurniture.url)} target="_blank" rel="noreferrer">Открыть товар ↗</a>}</section>
+              <section className="property-section"><TextField variant="secondary" value={selectedFurniture.url} onChange={url => changeFurniture({ url })}><Label>Ссылка на товар</Label><Input aria-label="Ссылка на товар" placeholder="https://…" /></TextField>{safeUrl(selectedFurniture.url) && <a className="external-link" href={safeUrl(selectedFurniture.url)} target="_blank" rel="noreferrer">Открыть товар ↗</a>}</section>
               <div className="selection-actions"><Button variant="secondary" size="sm" onPress={duplicateSelected}><Copy size={14} />Дублировать</Button><IconButton label="Удалить предмет" variant="danger-soft" onPress={deleteSelected}><Trash2 size={16} /></IconButton></div><p className="property-hint">Потяните за угол рамки, чтобы изменить размер. Круглая ручка поворачивает предмет.</p>
             </> : selectedWall ? <>
               <div className="selection-title"><span className="selection-kind">Конструкция</span><h2>Стена</h2><span className="object-dimensions">{meters(distance(plan.nodes[selectedWall.a], plan.nodes[selectedWall.b]))} м</span></div>
@@ -271,7 +279,7 @@ export default function App() {
               {selectedOpening.kind === 'door' && <Button variant="secondary" size="sm" fullWidth onPress={() => changeOpening({ swing: selectedOpening.swing === 1 ? -1 : 1 })}><RotateCw size={14} />Изменить открывание</Button>}<Button className="delete-object" variant="danger-soft" size="sm" fullWidth onPress={deleteSelected}><Trash2 size={14} />Удалить проём</Button>
             </> : selectedRoom ? <>
               <div className="selection-title"><span className="selection-kind">Помещение</span><h2>{selectedRoom.label?.name ?? 'Комната'}</h2><div className="area-value">{squareMeters(selectedRoom.area)}<span>м²</span></div></div>
-              <section className="property-section"><TextField value={selectedRoom.label?.name ?? ''} onChange={name => roomLabel({ name })}><Label>Название комнаты</Label><Input aria-label="Название комнаты" maxLength={100} placeholder="Комната" /></TextField></section>
+              <section className="property-section"><TextField variant="secondary" value={selectedRoom.label?.name ?? ''} onChange={name => roomLabel({ name })}><Label>Название комнаты</Label><Input aria-label="Название комнаты" maxLength={100} placeholder="Комната" /></TextField></section>
               <section className="property-section"><h3>Цвет пола</h3><div className="swatches">{['#f2eee5','#eaf0ec','#f4ede3','#e9eff1','#f0eee9','#ede6ef'].map(color => <Button key={color} variant="ghost" size="sm" isIconOnly aria-label={`Цвет пола ${color}`} aria-pressed={selectedRoom.label?.color === color} style={{ background: color }} onPress={() => roomLabel({ color })} className={selectedRoom.label?.color === color ? 'selected' : ''}>{selectedRoom.label?.color === color && <Check size={14} />}</Button>)}</div></section>
               <p className="property-hint">Площадь считается по осевым линиям стен и меняется вместе с контуром.</p>
             </> : <>
@@ -300,7 +308,7 @@ export default function App() {
           {modal?.type === 'help' ? <HeroModal.Body><div className="shortcut-list">{[...TOOLS.map(t => [t.name,t.key]), ['Повернуть предмет на 90°','R'], ['Показать весь план','F'], ['Отменить','⌘ / Ctrl + Z'], ['Повторить','⌘ / Ctrl + Shift + Z'], ['Дублировать предмет','⌘ / Ctrl + D'], ['Сохранить файл','⌘ / Ctrl + S'], ['Удалить выбранное','Delete'], ['Закончить стену / снять выбор','Esc'], ['Переместить холст','Пробел + мышь'], ['Без привязки','Alt'], ['Прямой угол','Shift']].map(([name,key]) => <div key={name}><span>{name}</span><Kbd>{key}</Kbd></div>)}</div></HeroModal.Body> : <form onSubmit={e => { e.preventDefault(); submitModal(); }}>
             <HeroModal.Body>
               {modalDescription && <p className="dialog-description">{modalDescription}</p>}
-              {modal?.type !== 'deleteVariant' && <TextField value={modalValue} onChange={setModalValue}><Label>{modal?.type === 'calibrate' ? 'Длина, см' : 'Название'}</Label><Input aria-label={modal?.type === 'calibrate' ? 'Длина отрезка' : 'Название'} autoFocus maxLength={modal?.type === 'calibrate' ? 10 : 100} /></TextField>}
+              {modal?.type !== 'deleteVariant' && <TextField variant="secondary" value={modalValue} onChange={setModalValue}><Label>{modal?.type === 'calibrate' ? 'Длина, см' : 'Название'}</Label><Input aria-label={modal?.type === 'calibrate' ? 'Длина отрезка' : 'Название'} autoFocus maxLength={modal?.type === 'calibrate' ? 10 : 100} /></TextField>}
               {modal?.type === 'new' && <ToggleButtonGroup className="new-plan-options" aria-label="Начальный план" selectionMode="single" disallowEmptySelection isDetached selectedKeys={[creatingDemo ? 'demo' : 'empty']} onSelectionChange={keys => setCreatingDemo([...keys][0] === 'demo')}><ToggleButton id="empty"><FilePlus2 size={20} /><span>Пустой план</span></ToggleButton><ToggleButton id="demo"><Layers2 size={20} /><span>Демо-квартира<small>63 м² с мебелью</small></span></ToggleButton></ToggleButtonGroup>}
             </HeroModal.Body>
             <HeroModal.Footer><Button variant="tertiary" type="button" onPress={() => setModal(null)}>Отмена</Button><Button variant={modal?.type === 'deleteVariant' ? 'danger' : 'primary'} type="submit">{modal?.type === 'new' ? 'Создать план' : modal?.type === 'variant' ? 'Создать копию' : modal?.type === 'deleteVariant' ? 'Удалить' : modal?.type === 'calibrate' ? 'Применить' : 'Сохранить'}</Button></HeroModal.Footer>
