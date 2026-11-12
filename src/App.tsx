@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Button, Description, Dropdown, Input, Kbd, Label, Modal as HeroModal, SearchField, Separator, Slider, Switch, Tabs, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Toast, toast as notify } from '@heroui/react';
 import { DimensionField as NumberField, IconButton } from './components/EditorControls';
 import { PlanCanvas } from './components/PlanCanvas';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { CanvasHandle } from './components/PlanCanvas';
 import { FurnitureGlyph } from './components/FurnitureGlyph';
 import { activePlan, CATALOG, demoProject, duplicateVariant, emptyPlan, findRooms, newFurniture, PALETTE, removeSelection, resizeWall, updatePlan, moveNodes } from './model';
@@ -40,8 +41,60 @@ export default function App() {
   const [compareId, setCompareId] = useState(''), [modal, setModal] = useState<Modal>(null), [modalValue, setModalValue] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [creatingDemo, setCreatingDemo] = useState(false), [mobilePanel, setMobilePanel] = useState<'catalog' | 'inspector' | null>(null);
+  const catalogPointer = useRef<{ kind: FurnitureKind; start: Point; pointerId: number; element: HTMLButtonElement; active: boolean } | null>(null);
+  const suppressCatalogClick = useRef(false);
+  const [catalogDrag, setCatalogDrag] = useState<{ kind: FurnitureKind; x: number; y: number; overCanvas: boolean } | null>(null);
   const variantList = useRef<HTMLDivElement>(null);
   const canvas = useRef<CanvasHandle>(null), projectInput = useRef<HTMLInputElement>(null), imageInput = useRef<HTMLInputElement>(null), gesture = useRef<Project | null>(null);
+  const beginCatalogDrag = (event: ReactPointerEvent<HTMLButtonElement>, kind: FurnitureKind) => {
+    if (event.button !== 0) return;
+    suppressCatalogClick.current = false;
+    catalogPointer.current = { kind, start: { x: event.clientX, y: event.clientY }, pointerId: event.pointerId, element: event.currentTarget, active: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  useEffect(() => {
+    const finish = () => {
+      const current = catalogPointer.current;
+      catalogPointer.current = null;
+      canvas.current?.cancelFurniturePreview();
+      setCatalogDrag(null);
+      document.body.classList.remove('catalog-dragging');
+      if (current?.element.hasPointerCapture(current.pointerId)) current.element.releasePointerCapture(current.pointerId);
+    };
+    const move = (event: PointerEvent) => {
+      const current = catalogPointer.current;
+      if (!current || event.pointerId !== current.pointerId) return;
+      const dx = event.clientX - current.start.x, dy = event.clientY - current.start.y;
+      if (!current.active) {
+        if (Math.hypot(dx, dy) < 6) return;
+        if (event.pointerType === 'touch' && Math.abs(dy) > Math.abs(dx)) { finish(); return; }
+        current.active = true; suppressCatalogClick.current = true;
+        setTool('select');
+        document.body.classList.add('catalog-dragging');
+      }
+      event.preventDefault();
+      const overCanvas = canvas.current?.previewFurniture(current.kind, event) ?? false;
+      setCatalogDrag(old => overCanvas && old?.overCanvas ? old : { kind: current.kind, x: event.clientX, y: event.clientY, overCanvas });
+    };
+    const end = (event: PointerEvent) => {
+      const current = catalogPointer.current;
+      if (!current || event.pointerId !== current.pointerId) return;
+      if (current.active) { event.preventDefault(); if (canvas.current?.dropFurniture(current.kind, event)) setMobilePanel(null); }
+      finish();
+    };
+    const cancel = () => finish();
+    const lostCapture = (event: PointerEvent) => { if (catalogPointer.current?.pointerId === event.pointerId) finish(); };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && catalogPointer.current) { event.preventDefault(); finish(); } };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', end); window.addEventListener('pointercancel', cancel);
+    window.addEventListener('lostpointercapture', lostCapture);
+    window.addEventListener('blur', cancel); window.addEventListener('keydown', key);
+    return () => {
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('lostpointercapture', lostCapture);
+      window.removeEventListener('blur', cancel); window.removeEventListener('keydown', key); finish();
+    };
+  }, []);
   const changePlan = useCallback((fn: (p: Plan) => Plan, record = true) => update(current => updatePlan(current, fn), record), [update]);
   const beginGesture = useCallback(() => { gesture.current = projectRef.current; }, [projectRef]);
   const endGesture = useCallback(() => { if (gesture.current) history.commit(gesture.current); gesture.current = null; }, [history.commit]);
@@ -76,10 +129,15 @@ export default function App() {
   const saveProject = useCallback(() => { const p = projectRef.current; downloadFile(JSON.stringify(p, null, 2), `${p.name || 'Квартира'}.metr.json`); notice('Проект сохранён в файл вместе со всеми вариантами'); }, [projectRef, notice]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (catalogPointer.current?.active) { e.preventDefault(); return; }
       if (plannerOpen) return;
       if (modal) { if (e.key === 'Escape') setModal(null); return; }
       const editable = (e.target as HTMLElement).closest('input,textarea,select,[contenteditable],[role=menu],[role=listbox]');
-      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); saveProject(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') {
+        e.preventDefault();
+        if (editable && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        saveProject(); return;
+      }
       if (editable) return;
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); if (e.shiftKey) history.redo(); else history.undo(); setSelection(null); return; }
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyY') { e.preventDefault(); history.redo(); setSelection(null); return; }
@@ -158,6 +216,7 @@ export default function App() {
   };
   const categories = ['Все', 'Гостиная', 'Спальня', 'Кухня', 'Ванная'];
   const filtered = CATALOG.filter(c => (category === 'Все' || c.category === category) && c.name.toLowerCase().includes(query.toLowerCase()));
+  const draggedCatalogItem = catalogDrag && !catalogDrag.overCanvas ? CATALOG.find(item => item.kind === catalogDrag.kind) : undefined;
   const ghost = compareId && compareId !== plan.id ? project.variants.find(v => v.id === compareId) : undefined;
   const roomLabel = (changes: { name?: string; color?: string }) => {
     if (!selectedRoom) return;
@@ -235,9 +294,12 @@ export default function App() {
               <div className="category-list" aria-label="Категории мебели">{categories.map(c => <Button key={c} size="sm" variant={category === c ? 'secondary' : 'ghost'} aria-pressed={category === c} onPress={() => setCategory(c)}>{c}</Button>)}</div>
               <div className="catalog-scroll">
                 <p className="catalog-instruction">Нажмите или перетащите на план</p>
-                <div className="catalog-grid">{filtered.map(item => <button key={item.kind} className="catalog-item" draggable aria-label={`Добавить: ${item.name}`}
-                  onDragStart={e => { e.dataTransfer.setData('metr/furniture', item.kind); e.dataTransfer.effectAllowed = 'copy'; }} onClick={() => addFurniture(item.kind)}>
-                  <div className="catalog-preview"><svg viewBox={`${-item.width / 2 - 25} ${-item.depth / 2 - 25} ${item.width + 50} ${item.depth + 50}`} aria-hidden="true"><FurnitureGlyph item={{ ...item, id: '', x: 0, y: 0, rotation: 0, url: '' }} /></svg><Plus className="catalog-add" size={14} /></div>
+                <div className="catalog-grid">{filtered.map(item => <button key={item.kind} className="catalog-item" draggable={false} aria-label={`Добавить: ${item.name}`}
+                  onPointerDown={e => beginCatalogDrag(e, item.kind)} onDragStart={e => e.preventDefault()} onClick={e => {
+                    if (suppressCatalogClick.current && e.detail > 0) { suppressCatalogClick.current = false; e.preventDefault(); return; }
+                    suppressCatalogClick.current = false; addFurniture(item.kind);
+                  }}>
+                  <div className="catalog-preview"><svg className="catalog-glyph" viewBox={`${-item.width / 2 - 25} ${-item.depth / 2 - 25} ${item.width + 50} ${item.depth + 50}`} aria-hidden="true"><FurnitureGlyph item={{ ...item, id: '', x: 0, y: 0, rotation: 0, url: '' }} /></svg><Plus className="catalog-add" size={14} /></div>
                   <span className="catalog-name">{item.name}</span><small>{item.width} × {item.depth} см</small>
                 </button>)}</div>
                 {!filtered.length && <div className="empty-search"><p>Ничего не найдено</p><Button size="sm" variant="tertiary" onPress={() => { setQuery(''); setCategory('Все'); }}>Сбросить поиск</Button></div>}
@@ -302,7 +364,7 @@ export default function App() {
       </main>
 
       <footer className="status-bar"><span>Размеры в сантиметрах</span><span className="footer-instruction">Alt — без привязки · Shift — прямой угол</span><Button variant="ghost" size="sm" onPress={() => setModal({ type: 'help' })}><Keyboard size={13} />Клавиши</Button></footer>
-      <div className="mobile-controls"><Button variant="ghost" size="sm" onPress={() => openModal('new')}><FilePlus2 size={16} />Новый</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('catalog')}><Sofa size={16} />Мебель</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('inspector')}><Settings2 size={16} />Свойства</Button><Button variant="ghost" size="sm" onPress={() => canvas.current?.fit()}><Maximize2 size={16} />Весь план</Button></div>
+      <div className="mobile-controls"><Button variant="ghost" size="sm" onPress={() => openModal('new')}><FilePlus2 size={16} />Новый</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('catalog')}><Sofa size={16} />Мебель</Button><Button className="mobile-inspector-control" variant="ghost" size="sm" onPress={() => setMobilePanel('inspector')}><Settings2 size={16} />Свойства</Button><Button variant="ghost" size="sm" onPress={() => canvas.current?.fit()}><Maximize2 size={16} />Весь план</Button></div>
       <input ref={projectInput} type="file" accept=".json,.metr.json" hidden onChange={e => { void importProject(e.target.files?.[0]); e.target.value = ''; }} />
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { void importBackground(e.target.files?.[0]); e.target.value = ''; }} />
       <Suspense fallback={null}>{PlannerDialog && plannerStatus.enabled && plannerOpen && <PlannerDialog plan={plan} comparisonSource={project.variants.find(p=>p.id===plan.improvement?.sourceId)} agentAvailable={plannerStatus.agentAvailable} capacity={30-project.variants.length} onClose={()=>setPlannerOpen(false)} onApply={(plans,activeId)=>{
@@ -312,6 +374,9 @@ export default function App() {
       }}/>}</Suspense>
       <Toast.Provider placement="bottom" maxVisibleToasts={2} width={420} />
 
+      {catalogDrag && draggedCatalogItem && <div className="catalog-drag-preview" style={{ left: catalogDrag.x, top: catalogDrag.y }} aria-hidden="true">
+        <svg viewBox={`${-draggedCatalogItem.width / 2 - 10} ${-draggedCatalogItem.depth / 2 - 10} ${draggedCatalogItem.width + 20} ${draggedCatalogItem.depth + 20}`}><FurnitureGlyph item={{ ...draggedCatalogItem, id: 'catalog-pointer-preview', x: 0, y: 0, rotation: 0, url: '' }}/></svg>
+      </div>}
       <HeroModal.Backdrop isOpen={modal !== null} onOpenChange={open => { if (!open) setModal(null); }}>
         <HeroModal.Container placement="center" size="sm"><HeroModal.Dialog className="editor-dialog">
           <HeroModal.CloseTrigger aria-label="Закрыть диалог" />

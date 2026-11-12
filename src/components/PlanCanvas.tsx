@@ -1,14 +1,20 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Crosshair, Minus, Plus, Maximize2, MousePointer2 } from 'lucide-react';
-import type { Plan, Selection, Tool, Furniture, Opening } from '../model';
+import type { Plan, Selection, Tool, Furniture, FurnitureKind, Opening } from '../model';
 import type { Point } from '../geometry';
-import { addOpening, addWall, findRooms, fitOpenings, newFurniture, moveNodes, mergeCoincidentNodes, openingsOverlap } from '../model';
+import { CATALOG, addOpening, addWall, findRooms, fitOpenings, newFurniture, moveNodes, mergeCoincidentNodes, openingsOverlap } from '../model';
 import { clamp, distance, furnitureBounds, meters, projectPoint, round, squareMeters, plural } from '../geometry';
 import { FurnitureGlyph } from './FurnitureGlyph';
 import { IconButton } from './EditorControls';
 
-export interface CanvasHandle { fit: () => void; center: () => Point; exportSvg: () => string; exportPng: () => Promise<Blob> }
+export interface CatalogPointer { clientX: number; clientY: number; altKey?: boolean }
+export interface CanvasHandle {
+  fit: () => void; center: () => Point; exportSvg: () => string; exportPng: () => Promise<Blob>;
+  previewFurniture: (kind: FurnitureKind, point: CatalogPointer) => boolean;
+  dropFurniture: (kind: FurnitureKind, point: CatalogPointer) => boolean;
+  cancelFurniturePreview: () => void;
+}
 interface Props {
   plan: Plan; ghost?: Plan; tool: Tool; selection: Selection; grid: boolean; dimensions: boolean; snap: boolean;
   onSelect: (selection: Selection) => void; onChange: (fn: (plan: Plan) => Plan, record?: boolean) => void;
@@ -51,6 +57,7 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
   const [anchor, setAnchor] = useState<Point | null>(null), [hover, setHover] = useState<Point | null>(null);
   const [measurement, setMeasurement] = useState<{ a: Point; b: Point } | null>(null), [space, setSpace] = useState(false);
   const [isDragging, setDragging] = useState(false);
+  const [catalogPreview, setCatalogPreview] = useState<Furniture | null>(null);
   const rooms = findRooms(plan), bounds = planBounds(plan), area = rooms.reduce((sum, r) => sum + r.area, 0);
   const fit = () => {
     const rect = containerRef.current?.getBoundingClientRect(); if (!rect) return;
@@ -66,12 +73,12 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
     if (containerRef.current) observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
-  useEffect(() => { fit(); setAnchor(null); setMeasurement(null); }, [plan.id]);
+  useEffect(() => { fit(); setAnchor(null); setMeasurement(null); setCatalogPreview(null); }, [plan.id]);
   useEffect(() => { setAnchor(null); setMeasurement(null); }, [tool]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]')) return;
-      if (e.code === 'Space') { e.preventDefault(); setSpace(true); }
+      if (e.code === 'Space' && !(e.target as Element).closest('button,a[href],[role=button],[role=slider],[role=switch],[role=radio],[role=tab],[role=menuitem],[role=checkbox]')) { e.preventDefault(); setSpace(true); }
       if (e.code === 'Escape') { setAnchor(null); setMeasurement(null); if (drag.current && drag.current.type !== 'pan') { onChange(() => drag.current && drag.current.type !== 'pan' ? drag.current.base : planRef.current, false); onEnd(); } drag.current = null; setDragging(false); }
     };
     const keyup = (e: KeyboardEvent) => { if (e.code === 'Space') setSpace(false); };
@@ -88,6 +95,27 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
     const projections = plan.walls.filter(w => !exclude.includes(w.a) && !exclude.includes(w.b)).map(w => projectPoint(p, plan.nodes[w.a], plan.nodes[w.b])).sort((a,b) => a.distance - b.distance);
     if (projections[0]?.distance < 9 / view.zoom) return { x: projections[0].x, y: projections[0].y };
     return { x: round(p.x, 10), y: round(p.y, 10) };
+  };
+  const catalogPoint = (point: CatalogPointer): Point | null => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || point.clientX < rect.left || point.clientX > rect.right || point.clientY < rect.top || point.clientY > rect.bottom) return null;
+    const target = document.elementFromPoint(point.clientX, point.clientY);
+    if (!target || !svgRef.current?.contains(target)) return null;
+    return snapPoint(toWorld(point), point.altKey);
+  };
+  const previewFurniture = (kind: FurnitureKind, point: CatalogPointer) => {
+    const position = catalogPoint(point), item = CATALOG.find(f => f.kind === kind);
+    if (!position || !item) { setCatalogPreview(null); return false; }
+    setCatalogPreview({ ...item, ...position, id: 'catalog-preview', rotation: 0, url: '' });
+    return true;
+  };
+  const dropFurniture = (kind: FurnitureKind, point: CatalogPointer) => {
+    const position = catalogPoint(point); setCatalogPreview(null);
+    if (!position || !CATALOG.some(f => f.kind === kind)) return false;
+    const item = newFurniture(kind, position);
+    onChange(current => ({ ...current, furniture: [...current.furniture, item] }));
+    onSelect({ kind: 'furniture', id: item.id });
+    return true;
   };
   const zoomAt = (factor: number, point: Point = { x: size.width / 2, y: size.height / 2 }) => setView(old => {
     const zoom = clamp(old.zoom * factor, .08, 4);
@@ -121,7 +149,7 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
     backdrop.setAttribute('x', String(b.minX - padding)); backdrop.setAttribute('y', String(b.minY - padding)); backdrop.setAttribute('width', String(width)); backdrop.setAttribute('height', String(height)); backdrop.setAttribute('fill', '#fafafa'); clone.insertBefore(backdrop, clone.firstChild);
     return new XMLSerializer().serializeToString(clone);
   };
-  useImperativeHandle(forwardedRef, () => ({ fit, center: () => ({ x: (size.width / 2 - view.x) / view.zoom, y: (size.height / 2 - view.y) / view.zoom }), exportSvg,
+  useImperativeHandle(forwardedRef, () => ({ fit, previewFurniture, dropFurniture, cancelFurniturePreview: () => setCatalogPreview(null), center: () => ({ x: (size.width / 2 - view.x) / view.zoom, y: (size.height / 2 - view.y) / view.zoom }), exportSvg,
     exportPng: async () => {
       const svg = exportSvg(), blob = new Blob([svg], { type: 'image/svg+xml' }), url = URL.createObjectURL(blob);
       try {
@@ -204,11 +232,9 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
   const selectedWall = selection?.kind === 'wall' ? plan.walls.find(w => w.id === selection.id) : undefined;
   const hint = tool === 'wall' ? anchor ? 'Выберите конец стены · Shift — прямой угол · Esc — закончить' : 'Нажмите, чтобы начать стену · Shift — прямой угол' : tool === 'door' || tool === 'window' ? 'Нажмите на стену, чтобы разместить проём' : tool === 'measure' || tool === 'calibrate' ? anchor ? 'Выберите вторую точку' : 'Выберите первую точку' : 'Пробел + перетаскивание — панорама · Колесо — масштаб';
   return <div className={`canvas-container tool-${tool}${space ? ' space-pan' : ''}${isDragging ? ' dragging' : ''}`} ref={containerRef}>
-    <svg ref={svgRef} className="plan-svg" aria-label="План квартиры" role="application" tabIndex={0} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} onContextMenu={e => e.preventDefault()} onDragOver={e => e.preventDefault()} onDrop={e => {
-      e.preventDefault(); const kind = e.dataTransfer.getData('metr/furniture');
-      if (kind && ['sofa','bed','table','dining','chair','wardrobe','kitchen','fridge','bath','toilet','sink','plant'].includes(kind)) {
-        const item = newFurniture(kind as Furniture['kind'], snapPoint(toWorld(e))); onChange(current => ({ ...current, furniture: [...current.furniture, item] })); onSelect({ kind: 'furniture', id: item.id });
-      }
+    <svg ref={svgRef} className="plan-svg" aria-label="План квартиры" role="application" tabIndex={0} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} onContextMenu={e => e.preventDefault()} onDragOver={e => { if (e.dataTransfer.types.includes('metr/furniture')) e.preventDefault(); }} onDrop={e => {
+      const kind = e.dataTransfer.getData('metr/furniture');
+      if (CATALOG.some(item => item.kind === kind)) { e.preventDefault(); dropFurniture(kind as FurnitureKind, e); }
     }}>
       <defs><pattern id="metr-grid" width={50} height={50} patternUnits="userSpaceOnUse"><circle cx={0} cy={0} r={.8 / view.zoom} fill="#b6b9ad"/>{view.zoom > .9 && <path d="M10 0v1M20 0v1M30 0v1M40 0v1M0 10h1M0 20h1M0 30h1M0 40h1" stroke="#d7d9d0" strokeWidth={.7}/>}</pattern></defs>
       <g data-world="true" transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
@@ -224,6 +250,10 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
         {plan.openings.map(o => <OpeningShape key={o.id} opening={o} plan={plan} selected={selection?.id === o.id} zoom={view.zoom}/>)}
         {rooms.map((room, index) => { const p = room.label ?? room.center; return <g key={`label-${room.id}`} data-room-label="true" pointerEvents="none" transform={`translate(${p.x} ${p.y})`} fill="#515a52" fontFamily="system-ui, sans-serif" textAnchor="middle"><text data-room-name="true" y={(view.zoom < .35 ? 2 : -2) / view.zoom} fontSize={(view.zoom < .35 ? 8 : 11) / view.zoom} fontWeight={500}>{room.label?.name ?? `Комната ${index + 1}`}</text><text data-room-area="true" display={view.zoom < .35 ? 'none' : undefined} y={11 / view.zoom} fontSize={9 / view.zoom} fill="#626b63">{squareMeters(room.area)} м²</text></g>; })}
         {dimensions && plan.walls.length > 0 && <><Dimension a={{ x: bounds.minX, y: bounds.minY }} b={{ x: bounds.maxX, y: bounds.minY }} offset={-50 / view.zoom} zoom={view.zoom}/><Dimension a={{ x: bounds.minX, y: bounds.maxY }} b={{ x: bounds.minX, y: bounds.minY }} offset={-50 / view.zoom} zoom={view.zoom}/></>}
+        {catalogPreview && <g data-editor-only="true" data-catalog-preview="true" pointerEvents="none" transform={`translate(${catalogPreview.x} ${catalogPreview.y})`} opacity={.8}>
+          <FurnitureGlyph item={catalogPreview}/>
+          <rect x={-catalogPreview.width / 2 - 3 / view.zoom} y={-catalogPreview.depth / 2 - 3 / view.zoom} width={catalogPreview.width + 6 / view.zoom} height={catalogPreview.depth + 6 / view.zoom} rx={4 / view.zoom} fill="none" stroke="var(--accent)" strokeWidth={1.5 / view.zoom} strokeDasharray={`${5 / view.zoom} ${3 / view.zoom}`}/>
+        </g>}
         {selectedWall && <g data-editor-only="true"><Dimension a={plan.nodes[selectedWall.a]} b={plan.nodes[selectedWall.b]} offset={-25 / view.zoom - selectedWall.thickness / 2} zoom={view.zoom} color="var(--accent)"/>{[selectedWall.a, selectedWall.b].map(id => <circle key={id} data-node={id} cx={plan.nodes[id].x} cy={plan.nodes[id].y} r={6 / view.zoom} fill="#ffffff" stroke="var(--accent)" strokeWidth={2 / view.zoom} style={{ cursor: 'crosshair' }}/>)}</g>}
         {selectedFurniture && <g data-editor-only="true" data-kind="furniture" data-id={selectedFurniture.id} transform={`translate(${selectedFurniture.x} ${selectedFurniture.y}) rotate(${selectedFurniture.rotation})`}>
           <rect x={-selectedFurniture.width / 2 - 5 / view.zoom} y={-selectedFurniture.depth / 2 - 5 / view.zoom} width={selectedFurniture.width + 10 / view.zoom} height={selectedFurniture.depth + 10 / view.zoom} fill="none" stroke="var(--accent)" strokeWidth={1.5 / view.zoom}/>

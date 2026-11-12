@@ -12,6 +12,7 @@ export interface CodexRequest {
   schema: unknown;
   search: boolean;
   signal?: AbortSignal;
+  images?: Uint8Array[];
 }
 export interface CodexResponse { result: unknown; sources: Set<string> }
 export type CodexRunner = (request: CodexRequest) => Promise<CodexResponse>;
@@ -32,11 +33,12 @@ export function codexAvailable(command = 'codex'): Promise<boolean> {
   availability.set(command, { until: Date.now() + 30000, value });
   return value;
 }
-export function codexArguments(schemaPath: string, outputPath: string, search: boolean, model?: string): string[] {
+export function codexArguments(schemaPath: string, outputPath: string, search: boolean, model?: string, imagePaths: string[] = []): string[] {
   const args = ['exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','read-only','--json','--color','never'];
   for (const feature of ['shell_tool','shell_snapshot','apps','plugins','browser_use','browser_use_full_cdp_access','computer_use','multi_agent','image_generation','code_mode_host']) args.push('--disable',feature);
   args.push('-c',`web_search="${search ? 'live' : 'disabled'}"`,'-c','model_reasoning_effort="medium"');
   if (model) args.push('--model',model);
+  for (const path of imagePaths) args.push('--image',path);
   args.push('--output-schema',schemaPath,'--output-last-message',outputPath,'-');
   return args;
 }
@@ -65,10 +67,12 @@ export const runCodexRequest: CodexRunner = async request => {
   const sources = new Set<string>();
   try {
     await writeFile(schemaPath,JSON.stringify(request.schema),{mode:0o600});
-    const timeout = AbortSignal.timeout(request.search ? 240000 : 180000);
+    const imagePaths:string[]=[];
+    for(const [i,data] of (request.images??[]).entries()){const path=join(dir,`plan-${i}.png`);await writeFile(path,data,{mode:0o600});imagePaths.push(path);}
+    const timeout = AbortSignal.timeout(request.search ? 240000 : 300000);
     const signal = request.signal ? AbortSignal.any([request.signal,timeout]) : timeout;
     await new Promise<void>((resolve,reject) => {
-      const child = spawn(request.command ?? 'codex',codexArguments(schemaPath,outputPath,request.search,request.model),{
+      const child = spawn(request.command ?? 'codex',codexArguments(schemaPath,outputPath,request.search,request.model,imagePaths),{
         cwd:dir,env:childEnvironment(),stdio:['pipe','pipe','pipe'],signal,
       });
       let buffer = '', bytes = 0;

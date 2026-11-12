@@ -16,6 +16,7 @@
   "dependencies": {
     "@heroui/react": "3.2.7",
     "@heroui/styles": "3.2.7",
+    "@resvg/resvg-js": "^2.6.2",
     "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-aria-components": "1.22.1",

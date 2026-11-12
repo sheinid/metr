@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseProject } from '../src/storage.ts';
-import { generateLayouts, validateBrief } from '../src/planner/layout.ts';
+import { validateBrief } from '../src/planner/validation.ts';
 import { isBrief, isPurchase } from '../src/planner/contracts.ts';
-import { agentAvailable, findProducts, reviewLayouts } from './agent.ts';
+import { agentAvailable, findProducts, designLayouts } from './agent.ts';
 import type { AgentConfig } from './agent.ts';
 export interface PlannerConfig extends AgentConfig { enabled: boolean }
 export function plannerConfig(env:Record<string,string|undefined>=process.env):PlannerConfig {
@@ -35,10 +35,10 @@ export function createApiHandler(config:PlannerConfig){
       if(!data||typeof data!=='object'||Array.isArray(data)){send(res,400,{error:'Некорректное задание'});return;}
       if(path.endsWith('/generate')){
         const plan=parseProject(JSON.stringify({version:1,name:'Подбор',activeId:data.plan?.id,variants:[data.plan]})).variants[0];
-        const brief=validateBrief(plan,data.brief);if(!['local','agent'].includes(data.mode)){send(res,400,{error:'Выберите способ подбора'});return;}
-        if(data.mode==='agent'&&!(await agentAvailable(config))){send(res,503,{error:'Агент не подключён. Используйте подбор по размерам.'});return;}
-        const candidates=generateLayouts(plan,brief,data.mode==='agent'?6:3);
-        const layouts=data.mode==='agent'?await reviewLayouts(config,plan,brief,candidates,controller.signal):candidates;
+        const brief=validateBrief(plan,data.brief);
+        if(data.mode!==undefined&&data.mode!=='agent'){send(res,400,{error:'Планировку проектирует агент. Локальный генератор удалён.'});return;}
+        if(!(await agentAvailable(config))){send(res,503,{error:'Агент не подключён. Проверьте локальный Codex.'});return;}
+        const layouts=await designLayouts(config,plan,brief,controller.signal);
         send(res,200,{layouts});
       }else{
         if(!isPurchase(data.purchase)||!isBrief(data.brief)){send(res,400,{error:'Некорректное задание на подбор мебели'});return;}
