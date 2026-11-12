@@ -289,7 +289,7 @@ export default function App() {
               <p className="property-hint">Площадь считается по осевым линиям стен и меняется вместе с контуром.</p>
             </> : <>
               <div className="selection-title"><h2>План квартиры</h2><div className="area-value">{squareMeters(area)}<span>м²</span></div><p className="area-caption">Площадь по осевым линиям стен</p></div>
-              {plannerStatus.enabled && plan.improvement && <section className="property-section improvement-summary"><h3>Идея варианта</h3><p>{plan.improvement.summary}</p><Button size="sm" variant="secondary" fullWidth onPress={()=>setPlannerOpen(true)}>Задание и покупки</Button></section>}
+              {plannerStatus.enabled && plan.improvement && <section className="property-section improvement-summary"><h3>Идея варианта</h3><p>{plan.improvement.engine==='local'?plan.improvement.summary.replace(' Стены и существующая мебель сохранены.',''):plan.improvement.summary}</p><Button size="sm" variant="secondary" fullWidth onPress={()=>setPlannerOpen(true)}>Задание и покупки</Button></section>}
               <dl className="project-stats"><div><dt>Помещений</dt><dd>{rooms.length}</dd></div><div><dt>Предметов</dt><dd>{plan.furniture.length}</dd></div><div><dt>Стен</dt><dd>{plan.walls.length}</dd></div></dl>
               <section className="property-section"><div className="section-heading"><h3>Текущий вариант</h3><div className="inline-actions"><IconButton label="Переименовать вариант" onPress={() => openModal('rename')}><Pencil size={14} /></IconButton><IconButton label="Удалить вариант" isDisabled={project.variants.length < 2} onPress={() => openModal('deleteVariant')}><Trash2 size={14} /></IconButton></div></div><p className="current-variant">{plan.name}</p><Button variant="secondary" size="sm" fullWidth onPress={() => openModal('variant')}><Copy size={14} />Копировать вариант</Button></section>
               <p className="property-hint selection-tip">Выберите объект на плане, чтобы изменить его размеры и положение.</p>
@@ -305,10 +305,10 @@ export default function App() {
       <div className="mobile-controls"><Button variant="ghost" size="sm" onPress={() => openModal('new')}><FilePlus2 size={16} />Новый</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('catalog')}><Sofa size={16} />Мебель</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('inspector')}><Settings2 size={16} />Свойства</Button><Button variant="ghost" size="sm" onPress={() => canvas.current?.fit()}><Maximize2 size={16} />Весь план</Button></div>
       <input ref={projectInput} type="file" accept=".json,.metr.json" hidden onChange={e => { void importProject(e.target.files?.[0]); e.target.value = ''; }} />
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { void importBackground(e.target.files?.[0]); e.target.value = ''; }} />
-      <Suspense fallback={null}>{plannerStatus.enabled && plannerOpen && <PlannerDialog plan={plan} agentAvailable={plannerStatus.agentAvailable} capacity={30-project.variants.length} onClose={()=>setPlannerOpen(false)} onApply={(plans,activeId)=>{
+      <Suspense fallback={null}>{plannerStatus.enabled && plannerOpen && <PlannerDialog plan={plan} comparisonSource={project.variants.find(p=>p.id===plan.improvement?.sourceId)} agentAvailable={plannerStatus.agentAvailable} capacity={30-project.variants.length} onClose={()=>setPlannerOpen(false)} onApply={(plans,activeId)=>{
         if(projectRef.current.variants.length+plans.length>30){notice('В одном проекте может быть до 30 вариантов');return;}
         const copies=plans.map(p=>({...structuredClone(p),id:uid()})), index=plans.findIndex(p=>p.id===activeId);
-        update(p=>({...p,variants:[...p.variants,...copies],activeId:copies[Math.max(0,index)].id}));setSelection(null);setCompareId('');setTool('select');setPlannerOpen(false);notice('Варианты добавлены. Исходный план сохранён.');
+        update(p=>({...p,variants:[...p.variants,...copies],activeId:copies[Math.max(0,index)].id}));setSelection(null);setCompareId('');setTool('select');setPlannerOpen(false);notice('Добавлено в проект');
       }}/>}</Suspense>
       <Toast.Provider placement="bottom" maxVisibleToasts={2} width={420} />
 
