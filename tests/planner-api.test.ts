@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { once } from 'node:events';
 import { activePlan, demoProject } from '../src/model.ts';
 import { defaultBrief } from '../src/planner/layout.ts';
@@ -29,4 +29,18 @@ test('agent only selects verified candidate IDs and gets no background or produc
 test('invented candidate IDs from the agent are rejected',async()=>{
   const fake=(async()=>new Response(JSON.stringify({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({selections:[{candidateId:'invented',title:'Test',summary:'Test',tradeoffs:[]}]})}]}]}))) as typeof fetch;
   const app=await host({enabled:true,apiKey:'test-only',model:'test',fetch:fake});try{assert.equal((await post(app.base,'generate',{...payload(),mode:'agent'})).status,400);}finally{app.close();}
+});
+
+test('local Codex is unavailable through a public Host even with the server flag enabled',async()=>{
+  let called=false;
+  const app=await host({enabled:true,provider:'codex',runCodex:async()=>{called=true;throw new Error('Must not call');}});
+  try{
+    const send=(path:string,method='GET')=>new Promise<{status:number;body:string}>((resolve,reject)=>{
+      const req=request(app.base+path,{method,headers:{Host:'metr.example',Origin:'http://metr.example','Content-Type':'application/json'}},res=>{
+        let body='';res.setEncoding('utf8');res.on('data',chunk=>body+=chunk);res.on('end',()=>resolve({status:res.statusCode!,body}));
+      });req.on('error',reject);req.end(method==='POST'?JSON.stringify({...payload(),mode:'agent'}):undefined);
+    });
+    assert.deepEqual(JSON.parse((await send('/api/planner/status')).body),{enabled:false});
+    assert.equal((await send('/api/planner/generate','POST')).status,403);assert.equal(called,false);
+  }finally{app.close();}
 });

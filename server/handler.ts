@@ -2,19 +2,22 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseProject } from '../src/storage.ts';
 import { generateLayouts, validateBrief } from '../src/planner/layout.ts';
 import { isBrief, isPurchase } from '../src/planner/contracts.ts';
-import { findProducts, reviewLayouts } from './agent.ts';
+import { agentAvailable, findProducts, reviewLayouts } from './agent.ts';
 import type { AgentConfig } from './agent.ts';
 export interface PlannerConfig extends AgentConfig { enabled: boolean }
 export function plannerConfig(env:Record<string,string|undefined>=process.env):PlannerConfig {
-  return {enabled:env.METR_PLANNER_ENABLED==='true',apiKey:env.OPENAI_API_KEY,model:env.METR_AI_MODEL};
+  return {enabled:env.METR_PLANNER_ENABLED==='true',provider:env.METR_AGENT_PROVIDER==='codex'?'codex':'openai',apiKey:env.OPENAI_API_KEY,model:env.METR_AI_MODEL,codexCommand:env.METR_CODEX_COMMAND,codexModel:env.METR_CODEX_MODEL};
 }
 export function createApiHandler(config:PlannerConfig){
   const limits=new Map<string,{count:number;until:number}>();let pending=0;
   const send=(res:ServerResponse,status:number,value:unknown)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(value));};
   return async(req:IncomingMessage,res:ServerResponse,next?:()=>void)=>{
     const path=(req.url??'').split('?')[0];if(!path.startsWith('/api/planner/')){if(next)next();else send(res,404,{error:'Страница не найдена'});return;}
-    if(path==='/api/planner/status'&&req.method==='GET'){send(res,200,config.enabled?{enabled:true,agentAvailable:!!(config.apiKey&&config.model)}:{enabled:false});return;}
-    if(!config.enabled){send(res,403,{error:'Подбор планировки пока недоступен'});return;}
+    const localAddress=['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress??'');
+    const localHost=/^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(req.headers.host??'');
+    const accessible=config.enabled&&(config.provider!=='codex'||localAddress&&localHost);
+    if(path==='/api/planner/status'&&req.method==='GET'){send(res,200,accessible?{enabled:true,agentAvailable:await agentAvailable(config)}:{enabled:false});return;}
+    if(!accessible){send(res,403,{error:'Подбор планировки пока недоступен'});return;}
     if(req.method!=='POST'||!['/api/planner/generate','/api/planner/products'].includes(path)){send(res,404,{error:'Метод не найден'});return;}
     const origin=req.headers.origin;
     if(!origin||(()=>{try{return new URL(origin).host!==req.headers.host;}catch{return true;}})()){send(res,403,{error:'Запрос должен прийти из редактора'});return;}
@@ -33,14 +36,14 @@ export function createApiHandler(config:PlannerConfig){
       if(path.endsWith('/generate')){
         const plan=parseProject(JSON.stringify({version:1,name:'Подбор',activeId:data.plan?.id,variants:[data.plan]})).variants[0];
         const brief=validateBrief(plan,data.brief);if(!['local','agent'].includes(data.mode)){send(res,400,{error:'Выберите способ подбора'});return;}
-        if(data.mode==='agent'&&(!config.apiKey||!config.model)){send(res,503,{error:'Агент не подключён. Используйте подбор по размерам.'});return;}
+        if(data.mode==='agent'&&!(await agentAvailable(config))){send(res,503,{error:'Агент не подключён. Используйте подбор по размерам.'});return;}
         const candidates=generateLayouts(plan,brief,data.mode==='agent'?6:3);
         const layouts=data.mode==='agent'?await reviewLayouts(config,plan,brief,candidates,controller.signal):candidates;
         send(res,200,{layouts});
       }else{
         if(!isPurchase(data.purchase)||!isBrief(data.brief)){send(res,400,{error:'Некорректное задание на подбор мебели'});return;}
         if(!data.brief.purchases||data.purchase.budget>data.brief.budget){send(res,400,{error:'Покупка выходит за рамки задания'});return;}
-        if(!config.apiKey||!config.model){send(res,503,{error:'Поиск товаров агентом не подключён'});return;}
+        if(!(await agentAvailable(config))){send(res,503,{error:'Поиск товаров агентом не подключён'});return;}
         send(res,200,await findProducts(config,data.purchase,data.brief,controller.signal));
       }
     }catch(error){if(!controller.signal.aborted&&!res.writableEnded)send(res,400,{error:error instanceof Error&&error.name!=='SyntaxError'?error.message:'Не удалось обработать ответ. Попробуйте ещё раз.'});}

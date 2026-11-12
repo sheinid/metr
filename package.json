@@ -8,7 +8,10 @@
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "start": "node --env-file-if-exists=.env --experimental-strip-types server/index.ts"
+    "start": "node --env-file-if-exists=.env --experimental-strip-types server/index.ts",
+    "build:pages": "npm run build -- --mode pages",
+    "dev:agent": "METR_PLANNER_ENABLED=true METR_AGENT_PROVIDER=codex vite --host 127.0.0.1",
+    "deploy:pages": "npm run build:pages && node scripts/deploy-pages.mjs"
   },
   "dependencies": {
     "@heroui/react": "3.2.7",
