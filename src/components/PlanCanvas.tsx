@@ -6,6 +6,7 @@ import type { Point } from '../geometry';
 import { addOpening, addWall, findRooms, fitOpenings, newFurniture, moveNodes, mergeCoincidentNodes, openingsOverlap } from '../model';
 import { clamp, distance, furnitureBounds, meters, projectPoint, round, squareMeters, plural } from '../geometry';
 import { FurnitureGlyph } from './FurnitureGlyph';
+import { IconButton } from './EditorControls';
 
 export interface CanvasHandle { fit: () => void; center: () => Point; exportSvg: () => string; exportPng: () => Promise<Blob> }
 interface Props {
@@ -28,7 +29,7 @@ function Dimension({ a, b, offset = 0, zoom = 1, color = '#99988f', label }: { a
   return <g transform={`translate(${a.x} ${a.y}) rotate(${angle})`} pointerEvents="none" stroke={color} strokeWidth={.8 / zoom}>
     <path d={`M0 ${offset - 7 / zoom}v${14 / zoom}M${length} ${offset - 7 / zoom}v${14 / zoom}M0 ${offset}H${length}`} fill="none"/>
     {offset !== 0 && <path d={`M0 0V${offset}M${length} 0V${offset}`} strokeDasharray={`${3 / zoom} ${4 / zoom}`} opacity={.5}/>}
-    <g transform={`translate(${length / 2} ${offset - 7 / zoom})${flip ? ' rotate(180)' : ''}`}><rect x={-36 / zoom} y={-12 / zoom} width={72 / zoom} height={17 / zoom} fill="#f7f6f2" stroke="none" rx={3 / zoom}/><text textAnchor="middle" fill={color} stroke="none" fontSize={11 / zoom} fontFamily="inherit">{label ?? `${meters(length)} м`}</text></g>
+    <g transform={`translate(${length / 2} ${offset - 7 / zoom})${flip ? ' rotate(180)' : ''}`}><rect x={-36 / zoom} y={-12 / zoom} width={72 / zoom} height={17 / zoom} fill="#fafafa" stroke="none" rx={3 / zoom}/><text textAnchor="middle" fill={color} stroke="none" fontSize={11 / zoom} fontFamily="inherit">{label ?? `${meters(length)} м`}</text></g>
   </g>;
 }
 function OpeningShape({ opening: o, plan, selected, zoom }: { opening: Opening; plan: Plan; selected?: boolean; zoom: number }) {
@@ -36,9 +37,9 @@ function OpeningShape({ opening: o, plan, selected, zoom }: { opening: Opening; 
   const a = plan.nodes[wall.a], b = plan.nodes[wall.b], angle = Math.atan2(b.y - a.y, b.x - a.x), length = distance(a, b);
   const start = { x: a.x + Math.cos(angle) * (length * o.t - o.width / 2), y: a.y + Math.sin(angle) * (length * o.t - o.width / 2) };
   return <g data-kind="opening" data-id={o.id} transform={`translate(${start.x} ${start.y}) rotate(${angle * 180 / Math.PI})`} style={{ cursor: 'pointer' }}>
-    <rect x={-1} y={-wall.thickness / 2 - 1} width={o.width + 2} height={wall.thickness + 2} fill="#f7f6f2"/>
-    {o.kind === 'window' ? <g fill="none" stroke={selected ? '#32745e' : '#7f9898'} strokeWidth={selected ? 2.5 : 1.5}><rect width={o.width} y={-wall.thickness / 2 + 2} height={wall.thickness - 4}/><path d={`M0 0H${o.width}M${o.width / 2} ${-wall.thickness / 2}v${wall.thickness}`}/></g> : <g fill="none" stroke={selected ? '#32745e' : '#9e9a8b'} strokeWidth={1.3}><path d={`M0 0V${o.width * o.swing}`} strokeWidth={3}/><path d={`M${o.width} 0A${o.width} ${o.width} 0 0 ${o.swing === 1 ? 1 : 0} 0 ${o.width * o.swing}`} strokeDasharray="3 3"/></g>}
-    <rect data-editor-only="true" x={-3} y={-Math.max(wall.thickness / 2, 9 / zoom)} width={o.width + 6} height={Math.max(wall.thickness, 18 / zoom)} fill="transparent" stroke={selected ? '#32745e' : 'none'} strokeWidth={1.5 / zoom} rx={2}/>
+    <rect x={-1} y={-wall.thickness / 2 - 1} width={o.width + 2} height={wall.thickness + 2} fill="#fafafa"/>
+    {o.kind === 'window' ? <g fill="none" stroke={selected ? '#006fee' : '#7f9898'} strokeWidth={selected ? 2.5 : 1.5}><rect width={o.width} y={-wall.thickness / 2 + 2} height={wall.thickness - 4}/><path d={`M0 0H${o.width}M${o.width / 2} ${-wall.thickness / 2}v${wall.thickness}`}/></g> : <g fill="none" stroke={selected ? '#006fee' : '#9e9a8b'} strokeWidth={1.3}><path d={`M0 0V${o.width * o.swing}`} strokeWidth={3}/><path d={`M${o.width} 0A${o.width} ${o.width} 0 0 ${o.swing === 1 ? 1 : 0} 0 ${o.width * o.swing}`} strokeDasharray="3 3"/></g>}
+    <rect data-editor-only="true" x={-3} y={-Math.max(wall.thickness / 2, 9 / zoom)} width={o.width + 6} height={Math.max(wall.thickness, 18 / zoom)} fill="transparent" stroke={selected ? '#006fee' : 'none'} strokeWidth={1.5 / zoom} rx={2}/>
   </g>;
 }
 export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(props, forwardedRef) {
@@ -54,7 +55,8 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
   const fit = () => {
     const rect = containerRef.current?.getBoundingClientRect(); if (!rect) return;
     const b = planBounds(planRef.current), width = Math.max(200, b.maxX - b.minX), height = Math.max(200, b.maxY - b.minY);
-    const zoom = clamp(Math.min((rect.width - 170) / width, (rect.height - 170) / height), .08, 1.4);
+    const horizontalPadding = rect.width < 520 ? 140 : 170;
+    const zoom = clamp(Math.min((rect.width - horizontalPadding) / width, (rect.height - 170) / height), .08, 1.4);
     setView({ zoom, x: (rect.width - width * zoom) / 2 - b.minX * zoom, y: (rect.height - height * zoom) / 2 - b.minY * zoom + 12 });
   };
   useEffect(() => {
@@ -104,11 +106,17 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
     const clone = svgRef.current!.cloneNode(true) as SVGSVGElement, b = planBounds(planRef.current), padding = Math.max(100, 80 / view.zoom);
     clone.querySelectorAll('[data-editor-only]').forEach(el => el.remove());
     clone.querySelector('[data-world]')?.removeAttribute('transform');
+    const roomColors = new Map(findRooms(planRef.current).map(room => [room.id, room.label?.color ?? '#efeee8']));
+    clone.querySelectorAll('[data-kind="room"]').forEach(room => room.setAttribute('fill', roomColors.get(room.getAttribute('data-id') ?? '') ?? '#efeee8'));
+    clone.querySelectorAll('[data-room-name]').forEach(text => { text.setAttribute('font-size', '22'); text.setAttribute('y', '-4'); });
+    clone.querySelectorAll('[data-room-area]').forEach(text => { text.removeAttribute('display'); text.setAttribute('font-size', '18'); text.setAttribute('y', '23'); });
     const width = Math.ceil(b.maxX - b.minX + padding * 2), height = Math.ceil(b.maxY - b.minY + padding * 2);
     clone.setAttribute('viewBox', `${b.minX - padding} ${b.minY - padding} ${width} ${height}`); clone.setAttribute('width', String(width)); clone.setAttribute('height', String(height)); clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    clone.removeAttribute('class'); clone.style.background = '#f7f6f2';
+    clone.removeAttribute('class'); clone.style.background = '#fafafa'; clone.style.fontFamily = 'system-ui, sans-serif';
+    clone.querySelectorAll('[data-kind="wall"] > line').forEach(line => line.setAttribute('stroke', '#464a43'));
+    clone.querySelectorAll('[data-kind="opening"]').forEach(group => { const opening = planRef.current.openings.find(o => o.id === group.getAttribute('data-id')); group.querySelectorAll('[stroke="#006fee"]').forEach(el => el.setAttribute('stroke', opening?.kind === 'window' ? '#7f9898' : '#9e9a8b')); });
     const backdrop = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    backdrop.setAttribute('x', String(b.minX - padding)); backdrop.setAttribute('y', String(b.minY - padding)); backdrop.setAttribute('width', String(width)); backdrop.setAttribute('height', String(height)); backdrop.setAttribute('fill', '#f7f6f2'); clone.insertBefore(backdrop, clone.firstChild);
+    backdrop.setAttribute('x', String(b.minX - padding)); backdrop.setAttribute('y', String(b.minY - padding)); backdrop.setAttribute('width', String(width)); backdrop.setAttribute('height', String(height)); backdrop.setAttribute('fill', '#fafafa'); clone.insertBefore(backdrop, clone.firstChild);
     return new XMLSerializer().serializeToString(clone);
   };
   useImperativeHandle(forwardedRef, () => ({ fit, center: () => ({ x: (size.width / 2 - view.x) / view.zoom, y: (size.height / 2 - view.y) / view.zoom }), exportSvg,
@@ -212,23 +220,23 @@ export const PlanCanvas = forwardRef<CanvasHandle, Props>(function PlanCanvas(pr
         </g>)}
         {plan.walls.map(w => <g key={w.id} data-kind="wall" data-id={w.id} style={{ cursor: tool === 'select' ? 'move' : undefined }}><line x1={plan.nodes[w.a].x} y1={plan.nodes[w.a].y} x2={plan.nodes[w.b].x} y2={plan.nodes[w.b].y} stroke={selection?.id === w.id ? '#43816a' : '#464a43'} strokeWidth={w.thickness} strokeLinecap="square"/><line data-editor-only="true" x1={plan.nodes[w.a].x} y1={plan.nodes[w.a].y} x2={plan.nodes[w.b].x} y2={plan.nodes[w.b].y} stroke="transparent" strokeWidth={Math.max(w.thickness, 14 / view.zoom)}/></g>)}
         {plan.openings.map(o => <OpeningShape key={o.id} opening={o} plan={plan} selected={selection?.id === o.id} zoom={view.zoom}/>)}
-        {rooms.map((room, index) => { const p = room.label ?? room.center; return <g key={`label-${room.id}`} pointerEvents="none" transform={`translate(${p.x} ${p.y})`} fill="#7c8075" fontFamily="system-ui, sans-serif" textAnchor="middle"><text y={-2 / view.zoom} fontSize={11 / view.zoom} fontWeight={500}>{room.label?.name ?? `Комната ${index + 1}`}</text><text y={11 / view.zoom} fontSize={9 / view.zoom} fill="#9a9c93">{squareMeters(room.area)} м²</text></g>; })}
+        {rooms.map((room, index) => { const p = room.label ?? room.center; return <g key={`label-${room.id}`} data-room-label="true" pointerEvents="none" transform={`translate(${p.x} ${p.y})`} fill="#7c8075" fontFamily="system-ui, sans-serif" textAnchor="middle"><text data-room-name="true" y={(view.zoom < .35 ? 2 : -2) / view.zoom} fontSize={(view.zoom < .35 ? 8 : 11) / view.zoom} fontWeight={500}>{room.label?.name ?? `Комната ${index + 1}`}</text><text data-room-area="true" display={view.zoom < .35 ? 'none' : undefined} y={11 / view.zoom} fontSize={9 / view.zoom} fill="#9a9c93">{squareMeters(room.area)} м²</text></g>; })}
         {dimensions && plan.walls.length > 0 && <><Dimension a={{ x: bounds.minX, y: bounds.minY }} b={{ x: bounds.maxX, y: bounds.minY }} offset={-50 / view.zoom} zoom={view.zoom}/><Dimension a={{ x: bounds.minX, y: bounds.maxY }} b={{ x: bounds.minX, y: bounds.minY }} offset={-50 / view.zoom} zoom={view.zoom}/></>}
-        {selectedWall && <g data-editor-only="true"><Dimension a={plan.nodes[selectedWall.a]} b={plan.nodes[selectedWall.b]} offset={-25 / view.zoom - selectedWall.thickness / 2} zoom={view.zoom} color="#32745e"/>{[selectedWall.a, selectedWall.b].map(id => <circle key={id} data-node={id} cx={plan.nodes[id].x} cy={plan.nodes[id].y} r={6 / view.zoom} fill="#fffef9" stroke="#32745e" strokeWidth={2 / view.zoom} style={{ cursor: 'crosshair' }}/>)}</g>}
+        {selectedWall && <g data-editor-only="true"><Dimension a={plan.nodes[selectedWall.a]} b={plan.nodes[selectedWall.b]} offset={-25 / view.zoom - selectedWall.thickness / 2} zoom={view.zoom} color="#006fee"/>{[selectedWall.a, selectedWall.b].map(id => <circle key={id} data-node={id} cx={plan.nodes[id].x} cy={plan.nodes[id].y} r={6 / view.zoom} fill="#fffef9" stroke="#006fee" strokeWidth={2 / view.zoom} style={{ cursor: 'crosshair' }}/>)}</g>}
         {selectedFurniture && <g data-editor-only="true" data-kind="furniture" data-id={selectedFurniture.id} transform={`translate(${selectedFurniture.x} ${selectedFurniture.y}) rotate(${selectedFurniture.rotation})`}>
-          <rect x={-selectedFurniture.width / 2 - 5 / view.zoom} y={-selectedFurniture.depth / 2 - 5 / view.zoom} width={selectedFurniture.width + 10 / view.zoom} height={selectedFurniture.depth + 10 / view.zoom} fill="none" stroke="#32745e" strokeWidth={1.5 / view.zoom}/>
-          {[-1,1].flatMap(x => [-1,1].map(y => <rect key={`${x}-${y}`} data-resize={JSON.stringify({x,y})} x={x * selectedFurniture.width / 2 - 4 / view.zoom} y={y * selectedFurniture.depth / 2 - 4 / view.zoom} width={8 / view.zoom} height={8 / view.zoom} fill="#fffef9" stroke="#32745e" strokeWidth={1.5 / view.zoom} style={{ cursor: x === y ? 'nwse-resize' : 'nesw-resize' }}/>))}
-          <path d={`M0 ${-selectedFurniture.depth / 2}v${-27 / view.zoom}`} stroke="#32745e" strokeWidth={1 / view.zoom}/><circle data-rotate="true" cx={0} cy={-selectedFurniture.depth / 2 - 30 / view.zoom} r={5 / view.zoom} fill="#fffef9" stroke="#32745e" strokeWidth={1.5 / view.zoom} style={{ cursor: 'grab' }}/>
-          <Dimension a={{ x: -selectedFurniture.width / 2, y: selectedFurniture.depth / 2 }} b={{ x: selectedFurniture.width / 2, y: selectedFurniture.depth / 2 }} offset={25 / view.zoom} zoom={view.zoom} color="#32745e"/>
+          <rect x={-selectedFurniture.width / 2 - 5 / view.zoom} y={-selectedFurniture.depth / 2 - 5 / view.zoom} width={selectedFurniture.width + 10 / view.zoom} height={selectedFurniture.depth + 10 / view.zoom} fill="none" stroke="#006fee" strokeWidth={1.5 / view.zoom}/>
+          {[-1,1].flatMap(x => [-1,1].map(y => <rect key={`${x}-${y}`} data-resize={JSON.stringify({x,y})} x={x * selectedFurniture.width / 2 - 4 / view.zoom} y={y * selectedFurniture.depth / 2 - 4 / view.zoom} width={8 / view.zoom} height={8 / view.zoom} fill="#fffef9" stroke="#006fee" strokeWidth={1.5 / view.zoom} style={{ cursor: x === y ? 'nwse-resize' : 'nesw-resize' }}/>))}
+          <path d={`M0 ${-selectedFurniture.depth / 2}v${-27 / view.zoom}`} stroke="#006fee" strokeWidth={1 / view.zoom}/><circle data-rotate="true" cx={0} cy={-selectedFurniture.depth / 2 - 30 / view.zoom} r={5 / view.zoom} fill="#fffef9" stroke="#006fee" strokeWidth={1.5 / view.zoom} style={{ cursor: 'grab' }}/>
+          <Dimension a={{ x: -selectedFurniture.width / 2, y: selectedFurniture.depth / 2 }} b={{ x: selectedFurniture.width / 2, y: selectedFurniture.depth / 2 }} offset={25 / view.zoom} zoom={view.zoom} color="#006fee"/>
         </g>}
-        {anchor && hover && <g data-editor-only="true" pointerEvents="none"><line x1={anchor.x} y1={anchor.y} x2={hover.x} y2={hover.y} stroke="#32745e" strokeWidth={tool === 'wall' ? 14 : 1.5 / view.zoom} strokeDasharray={tool === 'wall' ? 'none' : '5 4'} opacity={.6}/><circle cx={anchor.x} cy={anchor.y} r={4 / view.zoom} fill="#32745e"/><circle cx={hover.x} cy={hover.y} r={4 / view.zoom} fill="#fffef9" stroke="#32745e" strokeWidth={1.5 / view.zoom}/><Dimension a={anchor} b={hover} offset={-25 / view.zoom} zoom={view.zoom} color="#32745e"/></g>}
-        {measurement && <g data-editor-only="true"><Dimension a={measurement.a} b={measurement.b} zoom={view.zoom} color="#32745e"/><circle cx={measurement.a.x} cy={measurement.a.y} r={3 / view.zoom} fill="#32745e"/><circle cx={measurement.b.x} cy={measurement.b.y} r={3 / view.zoom} fill="#32745e"/></g>}
+        {anchor && hover && <g data-editor-only="true" pointerEvents="none"><line x1={anchor.x} y1={anchor.y} x2={hover.x} y2={hover.y} stroke="#006fee" strokeWidth={tool === 'wall' ? 14 : 1.5 / view.zoom} strokeDasharray={tool === 'wall' ? 'none' : '5 4'} opacity={.6}/><circle cx={anchor.x} cy={anchor.y} r={4 / view.zoom} fill="#006fee"/><circle cx={hover.x} cy={hover.y} r={4 / view.zoom} fill="#fffef9" stroke="#006fee" strokeWidth={1.5 / view.zoom}/><Dimension a={anchor} b={hover} offset={-25 / view.zoom} zoom={view.zoom} color="#006fee"/></g>}
+        {measurement && <g data-editor-only="true"><Dimension a={measurement.a} b={measurement.b} zoom={view.zoom} color="#006fee"/><circle cx={measurement.a.x} cy={measurement.a.y} r={3 / view.zoom} fill="#006fee"/><circle cx={measurement.b.x} cy={measurement.b.y} r={3 / view.zoom} fill="#006fee"/></g>}
       </g>
     </svg>
-    <div className="canvas-meta"><span className="floor-badge">01</span><div><strong>Первый этаж</strong><span>{rooms.length ? `${rooms.length} ${plural(rooms.length, 'помещение', 'помещения', 'помещений')} · ${squareMeters(area)} м²` : 'Начните со стен или подложки'}</span></div></div>
+    <div className="canvas-meta"><strong>Планировка</strong><span>{rooms.length ? `${rooms.length} ${plural(rooms.length, 'помещение', 'помещения', 'помещений')} · ${squareMeters(area)} м²` : 'Стены и размеры в сантиметрах'}</span></div>
     {ghost && <div className="comparison-badge"><span/>Наложение: {ghost.name}</div>}
-    {plan.walls.length === 0 && !plan.background && <div className="empty-canvas"><div className="empty-icon"><MousePointer2 size={28}/></div><h2>Место для ваших идей</h2><p>Нарисуйте стены инструментом W<br/>или загрузите план квартиры как подложку.</p></div>}
+    {plan.walls.length === 0 && !plan.background && <div className="empty-canvas"><MousePointer2 size={28}/><h2>Новый план</h2><p>Выберите «Стена» и отметьте углы комнаты.<br/>Готовый чертёж можно загрузить как подложку.</p></div>}
     <div className="canvas-hint"><Crosshair size={13}/><span>{hint}</span></div>
-    <div className="zoom-controls"><button title="Уменьшить" aria-label="Уменьшить" onClick={() => zoomAt(1 / 1.2)}><Minus size={15}/></button><span>{Math.round(view.zoom * 100)}%</span><button title="Увеличить" aria-label="Увеличить" onClick={() => zoomAt(1.2)}><Plus size={15}/></button><i/><button title="Показать весь план (F)" aria-label="Показать весь план" onClick={fit}><Maximize2 size={15}/></button></div>
+    <div className="zoom-controls"><IconButton label="Уменьшить" onPress={() => zoomAt(1 / 1.2)}><Minus size={15}/></IconButton><span>{Math.round(view.zoom * 100)}%</span><IconButton label="Увеличить" onPress={() => zoomAt(1.2)}><Plus size={15}/></IconButton><i/><IconButton label="Показать весь план" onPress={fit}><Maximize2 size={15}/></IconButton></div>
   </div>;
 });
