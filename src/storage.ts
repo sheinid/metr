@@ -1,5 +1,6 @@
 import type { Project, Plan, FurnitureKind } from './model.ts';
 import { CATALOG } from './model.ts';
+import { isImprovement } from './planner/contracts.ts';
 
 export const STORAGE_KEY = 'metr.project.v1';
 const finite = (v: unknown, min = -100000, max = 100000): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
@@ -39,6 +40,7 @@ function validPlan(value: unknown): value is Plan {
     if (!object(l) || !text(l.id) || labelIds.has(l.id) || !text(l.name) || !finite(l.x) || !finite(l.y) || !color(l.color)) return false;
     labelIds.add(l.id);
   }
+  if (value.improvement !== undefined && !isImprovement(value.improvement)) return false;
   const bg = value.background;
   if (bg !== undefined && (!object(bg) || typeof bg.src !== 'string' || bg.src.length > 15000000 || !/^data:image\/(png|jpeg|webp);base64,/.test(bg.src) || !finite(bg.x) || !finite(bg.y) || !finite(bg.width, 1) || !finite(bg.height, 1) || !finite(bg.opacity, 0, 1))) return false;
   return true;

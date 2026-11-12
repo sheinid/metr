@@ -1,13 +1,14 @@
+import type { Improvement } from './planner/types.ts';
 import { distance, intersection, polygonArea, polygonInteriorPoint, projectPoint, samePoint, uid, clamp, pointInPolygon } from './geometry.ts';
 import type { Point } from './geometry.ts';
 
 export interface Wall { id: string; a: string; b: string; thickness: number }
 export interface Opening { id: string; wallId: string; kind: 'door' | 'window'; t: number; width: number; swing: 1 | -1 }
-export type FurnitureKind = 'sofa' | 'bed' | 'table' | 'dining' | 'chair' | 'wardrobe' | 'kitchen' | 'fridge' | 'bath' | 'toilet' | 'sink' | 'plant';
+export type FurnitureKind = 'sofa' | 'bed' | 'table' | 'dining' | 'chair' | 'wardrobe' | 'kitchen' | 'fridge' | 'bath' | 'toilet' | 'sink' | 'plant' | 'desk' | 'shelf' | 'lamp';
 export interface Furniture { id: string; kind: FurnitureKind; name: string; x: number; y: number; width: number; depth: number; rotation: number; color: string; url: string }
 export interface RoomLabel { id: string; x: number; y: number; name: string; color: string }
 export interface Background { src: string; x: number; y: number; width: number; height: number; opacity: number }
-export interface Plan { id: string; name: string; nodes: Record<string, Point>; walls: Wall[]; openings: Opening[]; furniture: Furniture[]; labels: RoomLabel[]; background?: Background }
+export interface Plan { id: string; name: string; nodes: Record<string, Point>; walls: Wall[]; openings: Opening[]; furniture: Furniture[]; labels: RoomLabel[]; background?: Background; improvement?: Improvement }
 export interface Project { version: 1; name: string; activeId: string; variants: Plan[] }
 export interface Room { id: string; vertices: Point[]; nodeIds: string[]; area: number; center: Point; label?: RoomLabel }
 export type Selection = { kind: 'wall' | 'opening' | 'furniture' | 'room'; id: string } | null;
@@ -17,6 +18,9 @@ export const CATALOG: { kind: FurnitureKind; name: string; width: number; depth:
   { kind: 'sofa', name: 'Диван', width: 240, depth: 95, color: '#b7c9b4', category: 'Гостиная' },
   { kind: 'table', name: 'Журнальный стол', width: 110, depth: 60, color: '#d7bda0', category: 'Гостиная' },
   { kind: 'chair', name: 'Кресло', width: 80, depth: 80, color: '#c8b5c9', category: 'Гостиная' },
+  { kind: 'desk', name: 'Рабочий стол', width: 110, depth: 55, color: '#d7bda0', category: 'Гостиная' },
+  { kind: 'shelf', name: 'Стеллаж', width: 90, depth: 30, color: '#d7bda0', category: 'Спальня' },
+  { kind: 'lamp', name: 'Торшер', width: 35, depth: 35, color: '#e4d7b8', category: 'Гостиная' },
   { kind: 'plant', name: 'Растение', width: 50, depth: 50, color: '#a5bda0', category: 'Гостиная' },
   { kind: 'bed', name: 'Кровать', width: 160, depth: 200, color: '#aebfc9', category: 'Спальня' },
   { kind: 'wardrobe', name: 'Шкаф', width: 180, depth: 60, color: '#d7bda0', category: 'Спальня' },

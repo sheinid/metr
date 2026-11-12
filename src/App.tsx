@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUpFromLine, Check, ChevronDown, Copy, DoorOpen, Download, FilePlus2, FolderOpen, Grid2X2, Hand, ImagePlus, Keyboard, Layers2, Maximize2, MousePointer2, PanelTop, Pencil, Plus, Redo2, RotateCw, Ruler, Settings2, Sofa, Trash2, Undo2, Wallpaper, X, BrickWall, CheckCheck, AlertCircle, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Button, Description, Dropdown, Input, Kbd, Label, Modal as HeroModal, SearchField, Separator, Slider, Switch, Tabs, TextField, ToggleButton, ToggleButtonGroup, Toolbar, Tooltip, Toast, toast as notify } from '@heroui/react';
@@ -12,6 +12,8 @@ import { distance, meters, round, squareMeters, uid, clamp } from './geometry';
 import type { Point } from './geometry';
 import { downloadFile, parseProject, safeUrl, STORAGE_KEY } from './storage';
 import { useHistory } from './useHistory';
+
+const PlannerDialog = lazy(() => import('./components/PlannerDialog'));
 
 const TOOLS: { id: Tool; name: string; key: string; Icon: LucideIcon }[] = [
   { id: 'select', name: 'Выбор', key: 'V', Icon: MousePointer2 },
@@ -30,6 +32,8 @@ export default function App() {
   const [initial] = useState(loadInitial), history = useHistory<Project>(initial.project);
   const { value: project, update, ref: projectRef } = history;
   const plan = activePlan(project), rooms = findRooms(plan), area = rooms.reduce((sum, r) => sum + r.area, 0);
+  const [plannerStatus,setPlannerStatus] = useState({enabled:false,agentAvailable:false}), [plannerOpen,setPlannerOpen] = useState(false);
+  useEffect(() => { const controller = new AbortController(); void fetch('/api/planner/status',{signal:controller.signal}).then(r=>r.ok?r.json():null).then(value=>{if(!controller.signal.aborted)setPlannerStatus({enabled:value?.enabled===true,agentAvailable:value?.agentAvailable===true});}).catch(()=>{});return ()=>controller.abort(); },[]);
   const [selection, setSelection] = useState<Selection>(null), [tool, setTool] = useState<Tool>('select');
   const [grid, setGrid] = useState(true), [dimensions, setDimensions] = useState(true), [snap, setSnap] = useState(true);
   const [query, setQuery] = useState(''), [category, setCategory] = useState('Все'), [sideTab, setSideTab] = useState<'furniture' | 'rooms'>('furniture');
@@ -72,6 +76,7 @@ export default function App() {
   const saveProject = useCallback(() => { const p = projectRef.current; downloadFile(JSON.stringify(p, null, 2), `${p.name || 'Квартира'}.metr.json`); notice('Проект сохранён в файл вместе со всеми вариантами'); }, [projectRef, notice]);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (plannerOpen) return;
       if (modal) { if (e.key === 'Escape') setModal(null); return; }
       const editable = (e.target as HTMLElement).closest('input,textarea,select,[contenteditable],[role=menu],[role=listbox]');
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); saveProject(); return; }
@@ -251,7 +256,7 @@ export default function App() {
 
         <Tabs className="editor" variant="secondary" selectedKey={plan.id} onSelectionChange={key => selectVariant(String(key))}>
           <Tabs.ListContainer ref={variantList} className="variant-list"><Tabs.List aria-label="Варианты планировки">{project.variants.map(variant => <Tabs.Tab key={variant.id} id={variant.id}><span className="variant-name" title={variant.name}>{variant.name}</span><Tabs.Indicator /></Tabs.Tab>)}</Tabs.List></Tabs.ListContainer>
-          <div className="variant-actions"><IconButton label="Создать копию варианта" onPress={() => openModal('variant')}><Plus size={16} /></IconButton>
+          <div className="variant-actions">{plannerStatus.enabled && <Button className="planner-entry" size="sm" variant="secondary" aria-label="Улучшить план" onPress={()=>setPlannerOpen(true)}><SlidersHorizontal size={16}/><span>Улучшить план</span></Button>}<IconButton label="Создать копию варианта" onPress={() => openModal('variant')}><Plus size={16} /></IconButton>
             {project.variants.length > 1 && <div className="compare-control"><Dropdown><Button size="sm" variant={compareId ? 'secondary' : 'ghost'} aria-label="Наложить вариант"><Layers2 size={15} /><span>{ghost ? ghost.name : 'Сравнить'}</span><ChevronDown size={12} /></Button><Dropdown.Popover><Dropdown.Menu aria-label="Наложение вариантов" selectionMode="single" selectedKeys={[compareId || 'none']} onAction={key => setCompareId(key === 'none' ? '' : String(key))}><Dropdown.Item id="none" textValue="Без наложения"><Label>Без наложения</Label><Dropdown.ItemIndicator /></Dropdown.Item>{project.variants.filter(v => v.id !== plan.id).map(v => <Dropdown.Item key={v.id} id={v.id} textValue={v.name}><Label>{v.name}</Label><Dropdown.ItemIndicator /></Dropdown.Item>)}</Dropdown.Menu></Dropdown.Popover></Dropdown>{compareId && <IconButton label="Убрать сравнение" onPress={() => setCompareId('')}><X size={14} /></IconButton>}</div>}
           </div>
           {project.variants.map(variant => <Tabs.Panel key={variant.id} id={variant.id} className="editor-panel">{variant.id === plan.id && <PlanCanvas ref={canvas} plan={plan} ghost={ghost} tool={tool} selection={selection} grid={grid} dimensions={dimensions} snap={snap} onSelect={setSelection} onChange={changePlan} onBegin={beginGesture} onEnd={endGesture} onNotice={notice} onCalibrate={(a,b) => { setModalValue('100'); setModal({ type: 'calibrate', a,b }); }} />}</Tabs.Panel>)}
@@ -284,6 +289,7 @@ export default function App() {
               <p className="property-hint">Площадь считается по осевым линиям стен и меняется вместе с контуром.</p>
             </> : <>
               <div className="selection-title"><h2>План квартиры</h2><div className="area-value">{squareMeters(area)}<span>м²</span></div><p className="area-caption">Площадь по осевым линиям стен</p></div>
+              {plannerStatus.enabled && plan.improvement && <section className="property-section improvement-summary"><h3>Идея варианта</h3><p>{plan.improvement.summary}</p><Button size="sm" variant="secondary" fullWidth onPress={()=>setPlannerOpen(true)}>Задание и покупки</Button></section>}
               <dl className="project-stats"><div><dt>Помещений</dt><dd>{rooms.length}</dd></div><div><dt>Предметов</dt><dd>{plan.furniture.length}</dd></div><div><dt>Стен</dt><dd>{plan.walls.length}</dd></div></dl>
               <section className="property-section"><div className="section-heading"><h3>Текущий вариант</h3><div className="inline-actions"><IconButton label="Переименовать вариант" onPress={() => openModal('rename')}><Pencil size={14} /></IconButton><IconButton label="Удалить вариант" isDisabled={project.variants.length < 2} onPress={() => openModal('deleteVariant')}><Trash2 size={14} /></IconButton></div></div><p className="current-variant">{plan.name}</p><Button variant="secondary" size="sm" fullWidth onPress={() => openModal('variant')}><Copy size={14} />Копировать вариант</Button></section>
               <p className="property-hint selection-tip">Выберите объект на плане, чтобы изменить его размеры и положение.</p>
@@ -299,6 +305,11 @@ export default function App() {
       <div className="mobile-controls"><Button variant="ghost" size="sm" onPress={() => openModal('new')}><FilePlus2 size={16} />Новый</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('catalog')}><Sofa size={16} />Мебель</Button><Button variant="ghost" size="sm" onPress={() => setMobilePanel('inspector')}><Settings2 size={16} />Свойства</Button><Button variant="ghost" size="sm" onPress={() => canvas.current?.fit()}><Maximize2 size={16} />Весь план</Button></div>
       <input ref={projectInput} type="file" accept=".json,.metr.json" hidden onChange={e => { void importProject(e.target.files?.[0]); e.target.value = ''; }} />
       <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={e => { void importBackground(e.target.files?.[0]); e.target.value = ''; }} />
+      <Suspense fallback={null}>{plannerStatus.enabled && plannerOpen && <PlannerDialog plan={plan} agentAvailable={plannerStatus.agentAvailable} capacity={30-project.variants.length} onClose={()=>setPlannerOpen(false)} onApply={(plans,activeId)=>{
+        if(projectRef.current.variants.length+plans.length>30){notice('В одном проекте может быть до 30 вариантов');return;}
+        const copies=plans.map(p=>({...structuredClone(p),id:uid()})), index=plans.findIndex(p=>p.id===activeId);
+        update(p=>({...p,variants:[...p.variants,...copies],activeId:copies[Math.max(0,index)].id}));setSelection(null);setCompareId('');setTool('select');setPlannerOpen(false);notice('Варианты добавлены. Исходный план сохранён.');
+      }}/>}</Suspense>
       <Toast.Provider placement="bottom" maxVisibleToasts={2} width={420} />
 
       <HeroModal.Backdrop isOpen={modal !== null} onOpenChange={open => { if (!open) setModal(null); }}>
